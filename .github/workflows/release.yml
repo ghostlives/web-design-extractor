@@ -1,0 +1,49 @@
+name: Build release bundles
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: node scripts/bundle.mjs
+      - name: Smoke-test extracted skill
+        run: |
+          mkdir /tmp/wde-smoke
+          tar -xzf release/web-design-extractor.tar.gz -C /tmp/wde-smoke
+          cd /tmp/wde-smoke/web-design-extractor
+          npm ci --omit=dev
+          node dist/cli.js --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-design-extractor-bundles
+          path: release/*
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-design-extractor-bundles
+          path: release
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --generate-notes
